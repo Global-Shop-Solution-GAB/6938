@@ -1,0 +1,833 @@
+﻿Program.Sub.ScreenSU.Start
+
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+v.Global.sFile.Declare
+v.Global.sFileName.Declare
+v.Global.sPart.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Bryan Pham
+'04/21/2023
+'Customer:AKKERMAN, INC. 
+'Call: AKK010-42920221406-0
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+
+f.ODBC.Connection!Con.OpenCompanyConnection
+f.Intrinsic.Control.CallSub(checkFolder)
+f.Intrinsic.Control.CallSub(getFiles)
+
+Program.Sub.Main.End
+
+Program.Sub.ProcessFile.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sSQL.Declare
+v.Local.sFile.Declare
+v.Local.sRet.Declare
+v.Local.iCnt.Declare
+v.Local.bPRT.Declare(Boolean,False)
+v.Local.bASM.Declare(Boolean,False)
+v.Local.sInfo.Declare
+v.Local.sPart.Declare
+v.Local.sBOM.Declare
+v.Local.sBOMFile.Declare
+v.Local.sSource.Declare
+v.Local.sLinkID.Declare
+v.Local.sFilter.Declare
+v.Local.sLinkID_Final.Declare
+v.Local.sQty.Declare
+v.Local.sSEQ.Declare
+v.Local.sParent.Declare
+v.Local.sChild.Declare
+v.Local.sUM.Declare
+v.Local.sDesc.Declare
+v.Local.sStatus.Declare
+v.Local.sPart_Temp.Declare
+v.Local.sInfo_Temp.Declare
+v.Local.sDate_Action.Declare
+v.Local.sFileTarget.Declare
+v.Local.sMsg.Declare
+v.Local.sTemp.Declare
+V.Local.sProductLine.Declare
+
+
+v.Global.sFile.Set(v.Args.File)
+f.Intrinsic.String.Split(v.Global.sFile,"\",v.Local.sTemp)
+f.Intrinsic.String.Build("Process {0}",v.Local.sTemp(v.Local.sTemp.UBound),v.Local.sMsg)
+f.Intrinsic.UI.InvokeWaitDialog("Reading file...",v.Local.sMsg)
+
+
+f.Intrinsic.Control.If(v.DataTable.dtBOM$PART.Exists,=,True)
+	f.Data.Datatable.Close("dtBOM$PART")
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.Control.If(v.DataTable.dtBOM$BOM_ITEM.Exists,=,True)
+	f.Data.Datatable.Close("dtBOM$BOM_ITEM")
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.Control.If(v.DataTable.dtBOM$DRAWING.Exists,=,True)
+	f.Data.Datatable.Close("dtBOM$DRAWING")
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.Control.If(v.DataTable.dtBOM$DOC.Exists,=,True)
+	f.Data.Datatable.Close("dtBOM$DOC")
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.Control.If(v.DataTable.dtBOM.Exists,=,True)
+	f.Data.Datatable.Close("dtBOM")
+f.Intrinsic.Control.EndIf
+
+'===============================================================================================================================================================
+'rename reused nodes
+f.Intrinsic.File.File2String(v.Global.sFile,v.Local.sRet)
+f.Intrinsic.String.Replace(v.Local.sRet,"<FOL_NAME>","<FOL_NAME1>",v.Local.sRet)
+f.Intrinsic.String.Replace(v.Local.sRet,"</FOL_NAME>","</FOL_NAME1>",v.Local.sRet)
+f.Intrinsic.File.String2File(v.Global.sFile,v.Local.sRet)
+'===============================================================================================================================================================
+
+'create datatables from XML
+f.Data.DataTable.CreateDataSetFromXML("dtBOM",v.Global.sFile,true)
+
+'assembly or part
+f.Intrinsic.String.IsInString(v.Global.sFile,"(ASM)",True,v.Local.bASM)
+f.Intrinsic.String.IsInString(v.Global.sFile,"(PRT)",True,v.Local.bPRT)
+
+f.Intrinsic.String.Split(v.Global.sFile,"\",v.Local.sFile)
+f.Intrinsic.String.Split(v.Local.sFile(v.Local.sFile.UBound),"(",v.Local.sTemp)
+v.Global.sPart.Set(v.Local.sTemp(0))
+V.Global.sPart.Set(v.Global.sPart.Trim)
+
+'G Mansur 08/08/2023: Creating If statement to check if the name of the file is the same as the first part in the BOM
+F.Intrinsic.Control.If(v.Global.sPart.UCase, <>, v.DataTable.dtBOM$PART(0).Part_No!FieldValTrim)
+	F.Intrinsic.UI.Msgbox("The Parent part of the file doesn't match with the Part in the File Name. Ending program")
+	F.ODBC.Connection!con.Close
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndIf
+'======
+
+''''''''''''''''''''''''''''''''''''''''''''
+'G Mansur 07/31/2023: Modified logic
+'Checking if Parent Part Number (File Name), is in Inventory_Mstr
+'Get part info
+F.Global.Inventory.GetPartInfo(v.Global.sPart.UCase,"",V.Local.sInfo)
+'Get information of this part in the XML that will be needed in case it needs to be uploaded
+F.Intrinsic.String.Build("PART_NO = '{0}'", V.Global.sPart, V.Local.sFilter)
+F.Data.DataView.Create("dtBOM$PART", "dvParentInfo", 22, V.Local.sFilter, "")
+v.Local.sSource.Set(v.DataView.dtBOM$PART!dvParentInfo(0).ERP_SOURCE!FieldValTrim)
+v.Local.sStatus.Set(v.DataView.dtBOM$PART!dvParentInfo(0).STATUS!FieldValTrim)
+V.Local.sUM.Set(v.DataView.dtBOM$PART!dvParentInfo(0).UNIT_OF_MEASURE!FieldValTrim)
+V.Local.sDesc.Set(v.DataView.dtBOM$PART!dvParentInfo(0).DESC1!FieldValTrim)
+V.Local.sProductLine.Set(v.DataView.dtBOM$PART!dvParentInfo(0).PRODUCT_LINE!FieldValTrim)
+'''''''''''''''''''''''''''''''''''''''''''''
+
+'G Mansur 08/08/2023: Creating DataTable for Direct Children Only coming from BOM_ITEM
+F.Intrinsic.String.Build("PARENT_PART_NO = '{0}'", V.Global.sPart, V.Local.sFilter)
+F.Data.DataView.Create("dtBOM$BOM_ITEM", "dvDirectChildrenBOM_ITEM", 22, V.Local.sFilter, "")
+F.Intrinsic.Control.If(V.DataTable.dtDirectChildrenBOM_ITEM.Exists, =, True)
+	F.Data.DataTable.Close("dtDirectChildrenBOM_ITEM")
+F.Intrinsic.Control.EndIf
+'G Mansur 08/21/2023: Check if the BOM is only the parent part
+F.Intrinsic.Control.If(V.DataTable.dtBOM$BOM.Exists,=,True)
+	F.Data.DataView.ToDataTable("dtBOM", "dvDirectChildrenBOM_ITEM", "dtDirectChildrenBOM_ITEM", True)
+	F.Data.DataView.Close("dtBOM$BOM_ITEM", "dvDirectChildrenBOM_ITEM")
+F.Intrinsic.Control.EndIf
+'=====
+
+'G Mansur 08/08/2023: Creating DataTable for Direct Children Only coming from PART
+V.Local.sFilter.Set("")
+
+'G Mansur 08/21/2023: Check if the BOM is only the parent part
+F.Intrinsic.Control.If(V.DataTable.dtBOM$BOM.Exists,=,True)
+	F.Intrinsic.Control.For(V.Local.iCnt, 0, V.DataTable.dtDirectChildrenBOM_ITEM.RowCount--, 1)
+		V.Local.sPart_Temp.Set(V.DataTable.dtDirectChildrenBOM_ITEM(V.Local.iCnt).CHILD_PART_NO!FieldValTrim)
+		F.Intrinsic.Control.If(V.Local.iCnt, <, V.DataTable.dtDirectChildrenBOM_ITEM.RowCount--)
+			F.Intrinsic.String.Concat(V.Local.sFilter, "Part_No = '", V.Local.sPart_Temp, "' or ", V.Local.sFilter)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.Concat(V.Local.sFilter, "Part_No = '", V.Local.sPart_Temp, "'", V.Local.sFilter)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Next(V.Local.iCnt)
+	
+	F.Data.DataView.Create("dtBOM$PART", "dvDirectChildrenPART", 22, V.Local.sFilter, "")
+	F.Intrinsic.Control.If(V.DataTable.dtDirectChildrenPART.Exists, =, True)
+		F.Data.DataTable.Close("dtDirectChildrenPART")
+	F.Intrinsic.Control.EndIf
+	F.Data.DataView.ToDataTable("dtBOM", "dvDirectChildrenPART", "dtDirectChildrenPART", True)
+	F.Data.DataView.Close("dtBOM$PART", "dvDirectChildrenPART")
+F.Intrinsic.Control.EndIf
+'=====
+
+'G Mansur 07/31/2023: Modified logic
+'If it exists in Inventory_Mstr
+F.Intrinsic.Control.If(V.Local.sInfo, <>, "***NOPARTFOUND***")
+	
+		'G Mansur 07/31/2023: Modified logic
+		'If status is PROTOTYPE or WORK IN PROGRESS, then load BOM from XML and use Inventory_Mstr properties.
+		f.Intrinsic.Control.If(v.Local.sStatus.UCase,=,"PROTOTYPE", or, v.Local.sStatus.UCase,=,"WORK IN PROGRESS")
+		'======
+		
+				'G Mansur 07/31/2023: Modified logic
+				'Create Child Parts if they don't exist
+				'G Mansur 08/21/2023: Check if the BOM is only the parent part
+				F.Intrinsic.Control.If(V.DataTable.dtBOM$BOM.Exists,=,True)
+					F.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtDirectChildrenPart.RowCount--,1)
+						v.Local.sPart_Temp.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).Part_No!FieldValTrim)
+						F.Global.Inventory.GetPartInfo(v.Local.sPart_Temp.UCase,"",V.Local.sInfo)
+						F.Intrinsic.Control.If(V.Local.sInfo, =, "***NOPARTFOUND***")
+				
+							v.Local.sSource.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).ERP_SOURCE!FieldValTrim)
+							v.Local.sStatus.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).STATUS!FieldValTrim)
+							V.Local.sUM.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).UNIT_OF_MEASURE!FieldValTrim)
+							V.Local.sDesc.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).DESC1!FieldValTrim)
+							V.Local.sProductLine.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).PRODUCT_LINE!FieldValTrim)
+							
+							F.Intrinsic.Control.CallSub(Upload_Part, "Part", V.Local.sPart_Temp, "Source", V.Local.sSource, "Status", V.Local.sStatus, "UM", V.Local.sUM, "Desc", V.Local.sDesc, "ProductLine", V.Local.sProductLine)
+							
+						F.Intrinsic.Control.EndIf
+						
+					F.Intrinsic.Control.Next(V.Local.iCnt)
+				F.Intrinsic.Control.EndIf
+				'========
+			
+				'recreate BOM
+				f.Intrinsic.Control.If(v.Local.bPRT)
+					f.Intrinsic.Control.If(v.DataTable.dtBOM$PART.Exists,=,True)
+						f.Intrinsic.Control.CallSub(UploadBOM_PRT)
+					f.Intrinsic.Control.EndIf
+						
+				f.Intrinsic.Control.ElseIf(v.Local.bASM)
+					f.Intrinsic.Control.If(v.DataTable.dtBOM$BOM.Exists,=,True)
+						f.Intrinsic.Control.CallSub(UploadBOM_ASM)
+					f.Intrinsic.Control.EndIf
+				f.Intrinsic.Control.EndIf
+				'=====
+			
+				'then rebuild router
+				f.Intrinsic.String.Build("Select * from V_ROUTER_HEADER where RTRIM(ROUTER) = '{0}'",v.Global.sPart.Trim,v.Local.sSQL)
+				f.ODBC.Connection!con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSQL)
+				f.Intrinsic.Control.If(v.Ambient.ExecuteAndReturnEOF,=,False)
+					F.Global.Callwrapper.New("Test","Manufacturing.BOM.RebuildRouter")
+					F.Global.Callwrapper.SetProperty("Test","BegRouter",v.Global.sPart)
+					F.Global.Callwrapper.SetProperty("Test","EndRouter",v.Global.sPart)
+					F.Global.CallWrapper.Run("Test")
+					F.Global.CallWrapper.GetProperty("Test","Status",V.Local.sStatus)
+				f.Intrinsic.Control.EndIf
+				
+				'G Mansur 07/31/2023: Modified logic
+				'Rebuild Links
+				f.Intrinsic.Control.CallSub(createLinks)
+		
+		'G Mansur 07/31/2023: Modified logic
+		'If status is something else, just update links
+		F.Intrinsic.Control.Else
+			
+			f.Intrinsic.Control.CallSub(createLinks)
+			
+		f.Intrinsic.Control.EndIf
+		
+		
+'G Mansur 07/31/2023: Modified logic		
+'If Part not in Inventory
+F.Intrinsic.Control.Else
+		
+		'G Mansur 07/31/2023: Modified logic
+		'Check if Status is PROTOTYPE or WORK IN PROGRESS. If true, create part first and then upload BOM
+		f.Intrinsic.Control.If(v.Local.sStatus.UCase,=,"PROTOTYPE", or, v.Local.sStatus.UCase,=,"WORK IN PROGRESS")
+			
+				'G Mansur 07/31/2023: Modified logic
+				'Upload everything to inventory if it is not there
+				'Create Parent Part
+				F.Intrinsic.Control.CallSub(Upload_Part, "Part", V.Global.sPart, "Source", V.Local.sSource, "Status", V.Local.sStatus, "UM", V.Local.sUM, "Desc", V.Local.sDesc, "ProductLine", V.Local.sProductLine)
+				
+				'Create Child Parts if they don't exist
+				'G Mansur 08/21/2023: Check if the BOM is only the parent part
+				F.Intrinsic.Control.If(V.DataTable.dtBOM$BOM.Exists,=,True)
+					F.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtDirectChildrenPart.RowCount--,1)
+						v.Local.sPart_Temp.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).Part_No!FieldValTrim)
+						F.Global.Inventory.GetPartInfo(v.Local.sPart_Temp.UCase,"",V.Local.sInfo)
+						F.Intrinsic.Control.If(V.Local.sInfo, =, "***NOPARTFOUND***")
+						
+							v.Local.sSource.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).ERP_SOURCE!FieldValTrim)
+							v.Local.sStatus.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).STATUS!FieldValTrim)
+							V.Local.sUM.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).UNIT_OF_MEASURE!FieldValTrim)
+							V.Local.sDesc.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).DESC1!FieldValTrim)
+							V.Local.sProductLine.Set(v.DataTable.dtDirectChildrenPart(v.Local.iCnt).PRODUCT_LINE!FieldValTrim)
+							
+							F.Intrinsic.Control.CallSub(Upload_Part, "Part", V.Local.sPart_Temp, "Source", V.Local.sSource, "Status", V.Local.sStatus, "UM", V.Local.sUM, "Desc", V.Local.sDesc, "ProductLine", V.Local.sProductLine)
+							
+						F.Intrinsic.Control.EndIf
+					F.Intrinsic.Control.Next(V.Local.iCnt)
+				F.Intrinsic.Control.EndIf
+						
+				'recreate BOM
+					f.Intrinsic.Control.If(v.Local.bPRT)
+						f.Intrinsic.Control.If(v.DataTable.dtBOM$PART.Exists,=,True)
+							f.Intrinsic.Control.CallSub(UploadBOM_PRT)
+						f.Intrinsic.Control.EndIf
+						
+					f.Intrinsic.Control.ElseIf(v.Local.bASM)
+						f.Intrinsic.Control.If(v.DataTable.dtBOM$BOM.Exists,=,True)
+							f.Intrinsic.Control.CallSub(UploadBOM_ASM)
+						f.Intrinsic.Control.EndIf
+					f.Intrinsic.Control.EndIf
+					
+				'then rebuild router
+				f.Intrinsic.String.Build("Select * from V_ROUTER_HEADER where RTRIM(ROUTER) = '{0}'",v.Global.sPart.Trim,v.Local.sSQL)
+				f.ODBC.Connection!con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSQL)
+				f.Intrinsic.Control.If(v.Ambient.ExecuteAndReturnEOF,=,False)
+					F.Global.Callwrapper.New("Test","Manufacturing.BOM.RebuildRouter")
+					F.Global.Callwrapper.SetProperty("Test","BegRouter",v.Global.sPart)
+					F.Global.Callwrapper.SetProperty("Test","EndRouter",v.Global.sPart)
+					F.Global.CallWrapper.Run("Test")
+					F.Global.CallWrapper.GetProperty("Test","Status",V.Local.sStatus)
+				f.Intrinsic.Control.EndIf
+			
+				'G Mansur 07/31/2023: Modified logic
+				'Rebuild Links
+				f.Intrinsic.Control.CallSub(createLinks)
+		
+		'G Mansur 07/31/2023: Modified logic
+		'If part not in Inventory and with Status different from "Work in Progress" or "Prototype", just end program, we don't want any changes.
+		F.Intrinsic.Control.Else
+			
+				F.ODBC.Connection!con.Close
+				F.Intrinsic.Control.End
+			
+		F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.EndIf
+
+f.Intrinsic.UI.CloseWaitDialog
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}_{3}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\ERRORS_HOLD\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.Control.CallSub(MoveFile,"OldFile",v.Global.sFile,"NewFile",v.Local.sFileTarget)
+	F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.EndTry
+Program.Sub.ProcessFile.End
+
+Program.Sub.UploadBOM_PRT.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sParent.Declare
+v.Local.sSQL.Declare
+v.Local.sUM.Declare
+v.Local.sSource.Declare
+v.Local.sChild.Declare
+v.Local.sQty.Declare
+v.Local.sSEQ.Declare
+v.Local.sDesc.Declare
+v.Local.sBOM.Declare
+V.Local.sBOMFile.Declare
+v.Local.sDate_Action.Declare
+v.Local.sFileTarget.Declare
+
+'child is saved on MAT_DESC1 field 
+f.Intrinsic.Control.If(v.DataTable.dtBOM$PART(0).MAT_DESC1!FieldValTrim,<>,"")
+	
+	v.Local.sParent.Set(v.DataTable.dtBOM$PART(0).PART_NO!FieldValTrim)
+
+	f.Intrinsic.String.Build("Select RTRIM(UM_INVENTORY) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}'",v.Local.sParent.UCase,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sUM)
+	f.Intrinsic.String.Build("Select CODE_SOURCE from V_INVENTORY_MST2 where RTRIM(PART) = '{0}'",v.Local.sParent.UCase,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSource)
+	
+	f.Intrinsic.String.RPad(v.Local.sParent.UCase," ",20,v.Local.sParent)
+
+
+	v.Local.sChild.Set(v.DataTable.dtBOM$PART(0).MAT_DESC1!FieldValTrim)
+	f.Intrinsic.String.RPad(v.Local.sChild.UCase," ",20,v.Local.sChild)
+	f.Intrinsic.String.LPAD(v.DataTable.dtBOM$PART(0).QTY_OF_RAW_MATERIAL!FieldValTrim,"0",16,v.Local.sQty)
+	f.Intrinsic.String.LPAD("1","0",4,v.Local.sSEQ)
+	f.Intrinsic.String.RPad(v.Local.sUM," ",2,v.Local.sUM)
+	f.Intrinsic.String.RPad(v.DataTable.dtBOM$PART(0).DESC1!FieldValTrim," ",30,v.Local.sDesc)
+	f.Intrinsic.String.RPad(v.Local.sSource," ",1,v.Local.sSource)
+	
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}",V.Local.sParent.UCase,"0000","0000000000000001",V.Local.sParent.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+	f.Intrinsic.String.Build("Select RTRIM(UM_INVENTORY) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}'",v.Local.sChild.Trim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sUM)
+	f.Intrinsic.String.RPad(v.Local.sUM," ",2,v.Local.sUM)
+	f.Intrinsic.String.Build("Select RTRIM(DESCRIPTION) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}'",v.Local.sChild.Trim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sDesc)
+	f.Intrinsic.String.RPad(v.Local.sDesc," ",30,v.Local.sDesc)
+	f.Intrinsic.String.Build("Select CODE_SOURCE from V_INVENTORY_MST2 where RTRIM(PART) = '{0}'",V.Local.sChild.Trim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSource)
+	f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}{9}{10}",v.Local.sBOM,v.Ambient.NewLine,V.Local.sParent.UCase,V.Local.sSEQ,V.Local.sQty,V.Local.sChild.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+	
+	f.Intrinsic.Control.If(v.Local.sBOM,<>,"")
+		F.Intrinsic.String.Build("{0}\{1}",V.Caller.FilesDir,"bomhdr.txt",V.Local.sBOMFile)
+		f.Intrinsic.File.String2File(v.Local.sBOMFile,v.Local.sBOM)
+		
+		F.Global.General.CallWrapperSync(50,"xsolidwk")
+	f.Intrinsic.Control.EndIf
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}_{3}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\ERRORS_HOLD\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.Control.CallSub(MoveFile,"OldFile",v.Global.sFile,"NewFile",v.Local.sFileTarget)
+	F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.EndTry
+Program.Sub.UploadBOM_PRT.End
+
+Program.Sub.UploadBOM_ASM.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sParent.Declare
+v.Local.sSQL.Declare
+v.Local.sSource.Declare
+v.Local.sUM.Declare
+v.Local.sDesc.Declare
+v.Local.sBOM.Declare
+v.Local.iCnt.Declare
+v.Local.sSEQ.Declare
+v.Local.sChild.Declare
+v.Local.sQty.Declare
+V.Local.sBOMFile.Declare
+v.Local.sParentCur.Declare
+v.Local.sDate_Action.Declare
+v.local.sFileTarget.Declare
+v.Local.sFilter.Declare
+
+'Grab Parent Part
+v.Local.sParent.Set(v.DataTable.dtBOM$PART(0).PART_NO!FieldValTrim)
+'Grab Source Code from the parent part
+f.Intrinsic.String.Build("Select TOP 1 CODE_SOURCE from V_INVENTORY_MST2 where RTRIM(PART) = '{0}' order by LOCATION asc",v.Local.sParent.UCase,v.Local.sSQL)
+f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSource)
+f.Intrinsic.String.RPad(v.Local.sSource," ",1,v.Local.sSource)
+
+'Grab UM from parent part
+f.Intrinsic.String.Build("Select TOP 1 RTRIM(UM_INVENTORY) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}' order by LOCATION asc",v.Local.sParent.UCase,v.Local.sSQL)
+f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sUM)
+
+'Assigning description from XML
+f.Intrinsic.String.RPad(v.DataTable.dtBOM$PART(0).ERP_DESCRIPTION!FieldValTrim," ",30,v.Local.sDesc)
+'Assigning parent from XML
+f.Intrinsic.String.RPad(v.Local.sParent.UCase," ",20,v.Local.sParent)
+
+'Building first line of file
+f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}",V.Local.sParent.UCase,"0000","0000000000000001",V.Local.sParent.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+v.Local.sParent.Set(v.DataTable.dtBOM$PART(0).PART_NO!FieldValTrim)
+
+'Building lines for the children
+'G Mansur 08/08/2023: Changing the iteration to be in the filtered Table, instead of the whole table.
+f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtDirectChildrenBOM_ITEM.RowCount--,1)
+
+	f.Intrinsic.UI.ChangeWaitStatus("Uploading BOM...",v.Local.iCnt,0,v.DataTable.dtDirectChildrenBOM_ITEM.RowCount--)
+	v.Local.sParentCur.Set(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).PARENT_PART_NO!FieldValTrim)
+	v.Local.sParent.Set(v.Local.sParent.Trim)
+	'Check if Parent in Part table and parent in BOM_ITEM is the same
+	f.Intrinsic.Control.If(v.Local.sParentCur.UCase,<>,v.Local.sParent.UCase)
+		
+		v.Local.sParent.Set(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).PARENT_PART_NO!FieldValTrim)
+		f.Intrinsic.String.Build("Select TOP 1 CODE_SOURCE from V_INVENTORY_MST2 where RTRIM(PART) = '{0}' order by LOCATION asc",v.Local.sParent.UCase,v.Local.sSQL)
+		f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSource)
+		f.Intrinsic.String.RPad(v.Local.sSource," ",1,v.Local.sSource)
+		
+		f.Intrinsic.String.Build("Select TOP 1 RTRIM(UM_INVENTORY) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}' order by LOCATION asc",v.Local.sParent.UCase,v.Local.sSQL)
+		f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sUM)
+		
+		F.Intrinsic.Control.If(v.DataView.dtDirectChildrenBOM_ITEM!dvPART.Exists,=,true)
+			f.Data.DataView.Close("dtDirectChildrenBOM_ITEM","dvPART")
+		F.Intrinsic.Control.EndIf
+		f.Intrinsic.String.Build("PART_NO = '{0}'",v.Local.sParentCur,v.Local.sFilter)
+		f.Data.DataView.Create("dtDirectChildrenBOM_ITEM","dvPART",22,v.Local.sFilter,"")
+		f.Intrinsic.String.RPad(v.DataView.dtDirectChildrenBOM_ITEM!dvPART(0).ERP_DESCRIPTION!FieldValTrim," ",30,v.Local.sDesc)
+		
+		f.Intrinsic.String.RPad(v.Local.sParent.UCase," ",20,v.Local.sParent)
+		
+		
+		f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}{9}{10}",v.Local.sBOM,v.Ambient.NewLine,V.Local.sParent.UCase,"0000","0000000000000001",V.Local.sParent.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+	f.Intrinsic.Control.EndIf
+	
+	'Grab Source code from the child
+	f.Intrinsic.String.Build("Select TOP 1 CODE_SOURCE from V_INVENTORY_MST2 where RTRIM(PART) = '{0}' order by LOCATION asc",v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).CHILD_PART_NO!FieldValTrim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sSource)
+	'Grab UM from the child
+	f.Intrinsic.String.Build("Select TOP 1 RTRIM(UM_INVENTORY) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}' order by LOCATION asc",v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).CHILD_PART_NO!FieldValTrim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sUM)
+	'Grab Description from the child
+	f.Intrinsic.String.Build("Select TOP 1 RTRIM(DESCRIPTION) from V_INVENTORY_MSTR where RTRIM(PART) = '{0}' order by LOCATION asc",v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).CHILD_PART_NO!FieldValTrim,v.Local.sSQL)
+	f.ODBC.Connection!Con.ExecuteAndReturn(v.Local.sSQL,v.Local.sDesc)
+	
+	f.Intrinsic.String.RPad(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).PARENT_PART_NO!FieldValTrim," ",20,v.Local.sParent)
+	f.Intrinsic.String.RPad(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).CHILD_PART_NO!FieldValTrim," ",20,v.Local.sChild)
+	f.Intrinsic.String.LPAD(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).C_QTY!FieldValTrim,"0",16,v.Local.sQty)
+	'f.Intrinsic.Math.Div(v.DataTable.dtBOM$BOM_ITEM(v.Local.iCnt).ITEM_NO!FieldValTrim,10,v.Local.sSEQ)
+	f.Intrinsic.Math.Div(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).ITEM_NO!FieldValTrim,1,v.Local.sSEQ)
+	f.Intrinsic.String.LPAD(v.Local.sSEQ,"0",4,v.Local.sSEQ)
+	f.Intrinsic.String.RPAD(v.Local.sUM," ",2,v.Local.sUM)
+	f.Intrinsic.String.RPAD(v.Local.sDesc," ",30,v.Local.sDesc)
+	f.Intrinsic.String.RPAD(v.Local.sSource," ",1,v.Local.sSource)
+	f.Intrinsic.Control.If(v.Local.sBOM,=,"")
+		f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}",V.Local.sParent.UCase,V.Local.sSEQ,V.Local.sQty,V.Local.sChild.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+	f.Intrinsic.Control.Else
+		f.Intrinsic.String.Build("{0}{1}{2}{3}{4}{5}{6}{7}{8}{9}{10}",v.Local.sBOM,v.Ambient.NewLine,V.Local.sParent.UCase,V.Local.sSEQ,V.Local.sQty,V.Local.sChild.UCase,V.Local.sUM,V.Local.sDesc,"   "," ",V.Local.sSource,v.Local.sBOM)
+	f.Intrinsic.Control.EndIf
+f.Intrinsic.Control.Next(v.Local.iCnt)
+f.Intrinsic.Control.If(v.Local.sBOM,<>,"")
+	F.Intrinsic.String.Build("{0}\{1}",V.Caller.FilesDir,"bomhdr.txt",V.Local.sBOMFile)
+	f.Intrinsic.File.String2File(v.Local.sBOMFile,v.Local.sBOM)
+	
+	F.Global.General.CallWrapperSync(50,"xsolidwk")
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtDirectChildrenBOM_ITEM.RowCount--,1)
+	f.Intrinsic.Math.Div(v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).ITEM_NO!FieldValTrim,1,v.Local.sSEQ)
+	f.Intrinsic.Math.Mult(v.Local.sSEQ,10,v.Local.sSEQ)
+	f.Intrinsic.String.LPAD(v.Local.sSEQ,"0",4,v.Local.sSEQ)
+	f.Intrinsic.String.Build("Update BOM_MSTR set TAG = '{0}' where PARENT = '{1}' and PART = '{2}' and SEQUENCE_BOM = '{3}'",v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).ITEM_NO!FieldValTrim,v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).PARENT_PART_NO!FieldValTrim,v.DataTable.dtDirectChildrenBOM_ITEM(v.Local.iCnt).CHILD_PART_NO!FieldValTrim,v.Local.sSEQ,v.Local.sSQL)
+	f.ODBC.Connection!con.Execute(v.Local.sSQL)
+f.Intrinsic.Control.Next(v.Local.iCnt)
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}_{3}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\ERRORS_HOLD\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.Control.CallSub(MoveFile,"OldFile",v.Global.sFile,"NewFile",v.Local.sFileTarget)
+	F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.EndTry
+Program.Sub.UploadBOM_ASM.End
+
+Program.Sub.createLinks.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sURL.Declare
+v.Local.sLinkID.Declare
+v.Local.sLinkID_Final.Declare
+V.Local.iFileID.Declare
+V.Local.iFileID_Parent.Declare
+v.Local.iCnt.Declare
+v.Local.bSchematic.Declare
+v.Local.sWC.Declare
+v.Local.sTemp.Declare
+v.Local.sSQL.Declare
+v.Local.sRouterLine.Declare
+v.Local.sRouter.Declare
+v.Local.bInsSheet.Declare
+v.Local.bWorkIns.Declare
+v.Local.sFilter.Declare
+v.Local.sUQID.Declare
+v.Local.sC_UQID.Declare
+v.Local.i2.Declare
+v.Local.i3.Declare
+v.Local.sDate.Declare
+v.Local.iLink.Declare
+v.Local.sFileID.Declare
+v.Local.sDate_Action.Declare
+v.local.sFileTarget.Declare
+V.Local.sPart_Temp.Declare
+V.Local.sReturn.Declare
+
+f.Intrinsic.String.Format(v.Ambient.Now,"YYYY-MM-DD HH:MM:SS",v.Local.sDate)
+
+'DRAWING table does not always exist
+f.Intrinsic.Control.If(v.DataTable.dtBOM$DRAWING.Exists,=,True)
+	f.Global.DocumentControl.CreateReference(v.DataTable.dtBOM$DRAWING(0).DRAW_NO!FieldValTrim,"00030",v.Local.iFileID_Parent)
+f.Intrinsic.Control.EndIf
+
+'G Mansur 08/08/2023: Adding the value of the parent table to the already existing dtDirectChildrenPart that contained only the children
+V.Local.sPart_Temp.Set(v.DataTable.dtBOM$PART(0).PART_NO!FieldValTrim)
+F.Intrinsic.String.Build("PART_NO = '{0}'", V.Local.sPart_Temp, V.Local.sFilter)
+F.Data.DataView.Create("dtBOM$PART", "dvParentPartOnly", 22, V.Local.sFilter, "")
+'G Mansur 08/29/2023: Check if dtParentAndDirectChildren is open, if it is, close it
+F.Intrinsic.Control.If(V.DataTable.dtParentAndDirectChildren.Exists, =, True)
+	F.Data.DataTable.Close("dtParentAndDirectChildren")
+F.Intrinsic.Control.EndIf
+'===
+F.Data.DataView.ToDataTable("dtBOM", "dvParentPartOnly", "dtParentAndDirectChildren", True)
+'G Mansur 08/21/2023: Check if the BOM is only the parent part
+F.Intrinsic.Control.If(V.DataTable.dtBOM$BOM.Exists,=,True)
+	F.Data.DataTable.Merge("dtDirectChildrenPART", "dtParentAndDirectChildren", True, 1)
+F.Intrinsic.Control.EndIf
+'==
+
+'G Mansur 08/08/2023: Changin the dtBOM$PART to dtParentAndDirectChildren
+f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtParentAndDirectChildren.RowCount--,1)
+	f.Intrinsic.UI.ChangeWaitStatus("Adding documents...",v.Local.iCnt,0,v.DataTable.dtParentAndDirectChildren.RowCount--)
+	v.Local.sRouter.Set(v.DataTable.dtParentAndDirectChildren(v.Local.iCnt).PART_NO!FieldValTrim)
+	f.Global.DocumentControl.CreateReference(v.Local.sRouter.UCase,"00035",v.Local.iFileID)
+	'f.Intrinsic.String.LPad(v.Local.sLinkID,"0",9,v.Local.sLinkID_Final)
+	v.Local.sUQID.Set(v.DataTable.dtParentAndDirectChildren(v.Local.iCnt).UQID!FieldValTrim)
+	F.Intrinsic.Control.If(v.Local.sUQID,=,"P00010E30")
+	
+	F.Intrinsic.Control.EndIf
+	f.Intrinsic.String.Build("P_UQID = '{0}'",v.Local.sUQID,v.Local.sFilter)
+	F.Intrinsic.Control.If(v.DataView.dtBOM$LINK!dvLink.Exists,=,true)
+		f.Data.DataView.Close("dtBOM$LINK","dvLink")
+	F.Intrinsic.Control.EndIf
+	f.Intrinsic.Control.If(v.DataTable.dtBOM$LINK.Exists,=,True)
+	
+	
+		'create dataview matching with UQID 
+		f.Data.DataView.Create("dtBOM$LINK","dvLink",22,v.Local.sFilter,"")
+		f.Intrinsic.Control.For(v.Local.i2,0,v.DataView.dtBOM$LINK!dvLink.RowCount--,1)
+			v.Local.sC_UQID.Set(v.DataView.dtBOM$LINK!dvLink(v.Local.i2).C_UQID!FieldValTrim)
+			f.Intrinsic.String.Build("UQID = '{0}'",v.Local.sC_UQID,v.Local.sFilter)
+			'if the Class is DOCS
+			f.Intrinsic.Control.If(v.DataView.dtBOM$LINK!dvLink(v.Local.i2).C_CLASS!FieldValTrim,=,"DOCS")
+				F.Intrinsic.Control.If(v.DataView.dtBOM$DOC!dvDOC.Exists,=,true)
+					f.Data.DataView.Close("dtBOM$DOC","dvDOC")
+				F.Intrinsic.Control.EndIf
+				
+				'DOC table does not always exist
+				f.Intrinsic.Control.If(v.DataTable.dtBOM$DOC.Exists,=,True)
+					f.Data.DataView.Create("dtBOM$DOC","dvDOC",22,v.Local.sFilter,"")
+					f.Intrinsic.Control.For(v.Local.i3,0,v.DataView.dtBOM$DOC!dvDOC.RowCount--,1)
+						'schematic
+						f.Intrinsic.String.IsInString(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).FULL_CATEGORY_PATH!FieldValTrim,"Schematic",True,v.Local.bSchematic)
+						f.Intrinsic.Control.If(v.Local.bSchematic)
+							v.Local.sURL.Set(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).PDF_URL!FieldValTrim)
+							F.Global.DocumentControl.AddDocument(V.Local.iFileID,v.Local.sURL,,"8","HTTP")
+							f.Intrinsic.Control.If(v.DataTable.dtBOM$DRAWING.Exists,=,True)
+								F.Global.DocumentControl.AddDocument(V.Local.iFileID_Parent,v.Local.sURL,,"8","HTTP")
+							f.Intrinsic.Control.EndIf
+							
+						f.Intrinsic.Control.EndIf
+						'this part is for parent router line
+						
+						f.Intrinsic.Control.If(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).FULL_CATEGORY_PATH!FieldValTrim,<>,"")
+							f.Intrinsic.String.Split(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).FULL_CATEGORY_PATH!FieldValTrim,"(",v.Local.sTemp)
+							f.Intrinsic.String.Split(v.Local.sTemp(v.Local.sTemp.UBound),")",v.Local.sTemp)
+							v.Local.sWC.Set(v.Local.sTemp(0))
+						
+							f.Intrinsic.String.IsInString(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).FULL_CATEGORY_PATH!FieldValTrim,"Inspection",True,v.Local.bInsSheet)
+							f.Intrinsic.String.IsInString(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).FULL_CATEGORY_PATH!FieldValTrim,"Instruction",True,v.Local.bWorkIns)
+							
+							f.Intrinsic.String.Build("Select LINE_ROUTER from V_ROUTER_LINE where RTRIM(ROUTER) = '{0}' and RTRIM(PART_WC_OUTSIDE) = '{1}'",v.Local.sRouter.UCase,v.Local.sWC.UCase,v.Local.sSQL)
+							
+							f.ODBC.Connection!con.ExecuteAndReturn(v.Local.sSQL,v.Local.sRouterLine)
+							f.Intrinsic.Control.If(v.Ambient.ExecuteAndReturnEOF,=,False)
+								v.Local.sURL.Set(v.DataView.dtBOM$DOC!dvDOC(v.Local.i3).PDF_URL!FieldValTrim)
+								'f.Intrinsic.String.Len(v.Local.sURL,v.Local.i2)
+								f.Intrinsic.String.RPad(v.Local.sRouter," ",20,v.Local.sRouter)
+								f.Intrinsic.String.Build("{0}{1}",v.Local.sRouter,v.Local.sRouterLine,v.Local.sRouterLine)
+								f.Global.DocumentControl.CreateReference(v.Local.sRouterLine,"00037",v.Local.iFileID)
+								'inpsection sheet
+								f.Intrinsic.Control.If(v.Local.bInsSheet)
+									F.Global.DocumentControl.AddDocument(V.Local.iFileID,v.Local.sURL,"",4,"HTTP")
+								'work instruction
+								f.Intrinsic.Control.ElseIf(v.Local.bWorkIns)
+									F.Global.DocumentControl.AddDocument(V.Local.iFileID,v.Local.sURL,"",3,"HTTP")					
+								f.Intrinsic.Control.EndIf
+								
+							f.Intrinsic.Control.EndIf
+						f.Intrinsic.Control.EndIf
+					f.Intrinsic.Control.Next(v.Local.i3)
+				f.Intrinsic.Control.EndIf
+			'Class is DRAWINGS
+			f.Intrinsic.Control.ElseIf(v.DataView.dtBOM$LINK!dvLink(v.Local.i2).C_CLASS!FieldValTrim,=,"DRAWINGS",and,v.DataTable.dtBOM$DRAWING.Exists,=,True)
+				F.Intrinsic.Control.If(v.DataView.dtBOM$DRAWING!dvDRAWING.Exists,=,true)
+					f.Data.DataView.Close("dtBOM$DRAWING","dvDRAWING")
+				F.Intrinsic.Control.EndIf
+				'then get the drawings where UQID is matching
+				f.Data.DataView.Create("dtBOM$DRAWING","dvDRAWING",22,v.Local.sFilter,"")
+				f.Intrinsic.Control.If(v.DataView.dtBOM$DRAWING!dvDRAWING.RowCount,>,0)
+					v.Local.sURL.Set(v.DataView.dtBOM$DRAWING!dvDRAWING(0).PDF_URL!FieldValTrim)
+					'and add the URL to the router
+					F.Global.DocumentControl.CreateReference(v.DataView.dtBOM$DRAWING!dvDRAWING(0).DRAW_NO!FieldValTrim,"00035",V.Local.iFileID)
+					F.Global.DocumentControl.AddDocument(V.Local.iFileID,v.Local.sURL,,"2","HTTP")
+	
+				f.Intrinsic.Control.EndIf
+			f.Intrinsic.Control.EndIf
+		f.Intrinsic.Control.Next(v.Local.i2)
+	f.Intrinsic.Control.EndIf
+	'DDM Web Link
+	f.Intrinsic.String.Build("PART_NO = '{0}'",v.DataTable.dtParentAndDirectChildren(v.Local.iCnt).PART_NO!FieldValTrim,v.Local.sFilter)
+	F.Intrinsic.Control.If(v.DataView.dtParentAndDirectChildren!dvPart.Exists,=,true)
+		f.Data.DataView.Close("dtParentAndDirectChildren","dvPART")
+	F.Intrinsic.Control.EndIf
+	f.Data.DataView.Create("dtParentAndDirectChildren","dvPART",22,v.Local.sFilter,"")
+	f.Intrinsic.Control.If(v.DataView.dtParentAndDirectChildren!dvPart.RowCount,>,0)
+		v.Local.sURL.Set(v.DataView.dtParentAndDirectChildren!dvPart(0).DDM_WEB_PROPERTIES_URL!FieldValTrim)
+		F.Global.DocumentControl.CreateReference(v.DataView.dtParentAndDirectChildren!dvPart(0).PART_NO!FieldValTrim,"00035",V.Local.iFileID)
+		F.Global.DocumentControl.AddDocument(V.Local.iFileID,v.Local.sURL,,"9","HTTP")
+		
+	f.Intrinsic.Control.EndIf
+f.Intrinsic.Control.Next(v.Local.iCnt)
+
+'add DDM web link and drawings for parent part
+
+'DDM web, document group 2
+f.Intrinsic.Control.If(v.DataTable.dtBOM$DRAWING.Exists,=,True)
+	F.Global.DocumentControl.AddDocument(V.Local.iFileID_Parent,v.DataTable.dtBOM$DRAWING(0).PDF_URL!FieldValTrim,,"2","HTTP")
+f.Intrinsic.Control.EndIf
+'DDM web, document group 9
+f.Global.DocumentControl.CreateReference(v.DataTable.dtParentAndDirectChildren(0).PART_NO!FieldValTrim,"00030",v.Local.iFileID_Parent)
+F.Global.DocumentControl.AddDocument(V.Local.iFileID_Parent,v.DataTable.dtParentAndDirectChildren(0).DDM_WEB_PROPERTIES_URL!FieldValTrim,,"9","HTTP")
+
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}_{3}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\ERRORS_HOLD\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Global.sFileName,v.Local.sFileTarget)
+	f.Intrinsic.Control.CallSub(MoveFile,"OldFile",v.Global.sFile,"NewFile",v.Local.sFileTarget)
+	F.Intrinsic.Control.ExitSub
+F.Intrinsic.Control.EndTry
+Program.Sub.createLinks.End
+
+Program.Sub.checkFolder.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+v.Local.sDate_Action.Declare
+v.Local.sFileTarget.Declare
+v.Local.bExists.Declare
+
+
+f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\UPLOAD",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFileTarget)
+f.Intrinsic.File.DirExists(v.Local.sFileTarget,v.Local.bExists)
+f.Intrinsic.Control.If(v.Local.bExists,=,False)
+	f.Intrinsic.File.CreateDir(v.Local.sFileTarget)
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\FINISHED",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFileTarget)
+f.Intrinsic.File.DirExists(v.Local.sFileTarget,v.Local.bExists)
+f.Intrinsic.Control.If(v.Local.bExists,=,False)
+	f.Intrinsic.File.CreateDir(v.Local.sFileTarget)
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFileTarget)
+f.Intrinsic.File.DirExists(v.Local.sFileTarget,v.Local.bExists)
+f.Intrinsic.Control.If(v.Local.bExists,=,False)
+	f.Intrinsic.File.CreateDir(v.Local.sFileTarget)
+f.Intrinsic.Control.EndIf
+
+f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\ERRORS_HOLD",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFileTarget)
+f.Intrinsic.File.DirExists(v.Local.sFileTarget,v.Local.bExists)
+f.Intrinsic.Control.If(v.Local.bExists,=,False)
+	f.Intrinsic.File.CreateDir(v.Local.sFileTarget)
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.checkFolder.End
+
+Program.Sub.getFiles.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sPath.Declare
+v.Local.sFiles.Declare
+v.Local.iCnt.Declare
+v.Local.sDate_Action.Declare
+v.Local.sProcessFile.Declare
+v.Local.sNewFile.Declare
+v.Local.sFileTarget.Declare
+v.Local.bExist.Declare
+
+f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\UPLOAD",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sPath)
+f.Intrinsic.File.GetFileList(v.Local.sPath,v.Local.sFiles)
+f.Intrinsic.String.Split(v.Local.sFiles,":",v.Local.sFiles)
+
+f.Intrinsic.Control.For(v.Local.iCnt,0,v.Local.sFiles.UBound,1)
+	v.Global.sFileName.Set(v.Local.sFiles(v.Local.iCnt))
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\UPLOAD\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFiles(v.Local.iCnt),v.Local.sProcessFile)
+	f.Intrinsic.Control.CallSub(ProcessFile,"File",v.Local.sProcessFile)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\FINISHED\{2}",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sFiles(v.Local.iCnt),v.Local.sNewFile)
+	f.Intrinsic.File.Exists(v.Local.sProcessFile,v.Local.bExist)
+	f.Intrinsic.Control.If(v.Local.bExist,=,True)
+		f.Intrinsic.Control.CallSub(MoveFile,"OldFile",v.Local.sProcessFile,"NewFile",v.Local.sNewFile)
+	f.Intrinsic.Control.EndIf
+	
+f.Intrinsic.Control.Next(v.Local.iCnt)
+f.ODBC.Connection!con.Close
+f.Intrinsic.Control.End
+
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.getFiles.End
+
+Program.Sub.MoveFile.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare(String)
+v.Local.sDate_Action.Declare
+v.Local.sNewFile.Declare
+v.Local.sOldFile.Declare
+v.Local.sFileTarget.Declare
+v.Local.bExist.Declare
+
+v.Local.sOldFile.Set(v.Args.OldFile)
+v.Local.sNewFile.Set(v.Args.NewFile)
+
+f.Intrinsic.File.Exists(v.Local.sNewFile,v.Local.bExist)
+f.Intrinsic.Control.If(v.Local.bExist,=,True)
+	f.Intrinsic.File.DeleteFile(v.Local.sNewFile)
+f.Intrinsic.Control.EndIf
+f.Intrinsic.File.CopyFile(v.Local.sOldFile,v.Local.sNewFile)
+f.Intrinsic.File.DeleteFile(v.Local.sOldFile)
+	
+F.Intrinsic.Control.Catch
+	Function.Intrinsic.String.Format(v.Ambient.Date,"MMDDYY",v.Local.sDate_Action)
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",V.Ambient.ScriptPath,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	f.Intrinsic.String.Build("{0}\CUSTOM\6938\{1}\LOG\Error{2}.txt",v.Caller.GlobalDir,v.Caller.CompanyCode,v.Local.sDate_Action,v.Local.sFileTarget)
+	f.Intrinsic.File.String2File(v.local.sFileTarget,V.Local.sError)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry	
+Program.Sub.MoveFile.End
+
+Program.Sub.Upload_Part.Start
+'G Mansur 07/31/2023: Created this Subroutine to work along the logic in ProcessFile
+
+f.Intrinsic.UI.ChangeWaitStatus("Creating part...")
+						
+V.Local.sSource.Declare
+V.Local.sPart.Declare
+V.Local.sUM.Declare
+V.Local.sDesc.Declare
+V.Local.sProductLine.Declare
+
+V.Local.sSource.Set(V.Args.Source)
+V.Local.sPart.Set(V.Args.Part)
+V.Local.sUM.Set(V.Args.UM)
+V.Local.sDesc.Set(V.Args.Desc)
+V.Local.sProductLine.Set(V.Args.ProductLine)
+
+'Let's create the part, assigning the correct Source Code
+F.Intrinsic.Control.SelectCase(V.Local.sSource)
+	F.Intrinsic.Control.Case("")
+		V.Local.sSource.Set("F")
+	F.Intrinsic.Control.Case("MS")
+		V.Local.sSource.Set("M")
+	F.Intrinsic.Control.Case("MJ")
+		V.Local.sSource.Set("F")
+	F.Intrinsic.Control.Case("PS")
+		V.Local.sSource.Set("P")
+	F.Intrinsic.Control.Case("PJ")
+		V.Local.sSource.Set("J")
+	F.Intrinsic.Control.Case("CS")
+		V.Local.sSource.Set("C")
+	F.Intrinsic.Control.Case("CJ")
+		V.Local.sSource.Set("G")
+F.Intrinsic.Control.EndSelect
+	
+'Create Part
+F.Global.Inventory.CreatePart(V.Local.sPart.UCase, V.Local.sUM, V.Local.sDesc, "", V.Local.sProductLine, V.Local.sSource, "", "", "0", "UPLINV")
+
+Program.Sub.Upload_Part.End
+
+Program.Sub.Comments.Start
+${$5$}$20.1.8578.15441$}$1
+${$6$}$gmansur$}$20230829234814863$}$K/sEmFVXhafX7mOm1w0TdKIbTZlXvIA3/7k84s/XX9uYCYN7dgShT47fZu2EfxymuzOot2VNu3c=
+Program.Sub.Comments.End
